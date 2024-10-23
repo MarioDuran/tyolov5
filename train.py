@@ -299,6 +299,8 @@ def train(hyp, opt, device, callbacks):
         prefix=colorstr("train: "),
         shuffle=True,
         seed=opt.seed,
+        seq_len=opt.seq_len,
+        video_len=opt.video_len,
     )
     labels = np.concatenate(dataset.labels, 0)
     mlc = int(labels[:, 0].max())  # max label class
@@ -319,6 +321,8 @@ def train(hyp, opt, device, callbacks):
             workers=workers * 2,
             pad=0.5,
             prefix=colorstr("val: "),
+            seq_len=opt.seq_len,
+            video_len=opt.video_len,
         )[0]
 
         if not resume:
@@ -613,6 +617,10 @@ def parse_opt(known=False):
     parser.add_argument("--ndjson-console", action="store_true", help="Log ndjson to console")
     parser.add_argument("--ndjson-file", action="store_true", help="Log ndjson to file")
 
+    #Temporal Argument
+    parser.add_argument("--seq_len", type=int, default=2, help="Number of frames per training sequence")
+    parser.add_argument("--video_len", type=int, default=100, help="Total number of frames in each video")
+    
     return parser.parse_known_args()[0] if known else parser.parse_args()
 
 
