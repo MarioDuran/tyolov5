@@ -47,8 +47,12 @@ class Albumentations:
         except Exception as e:
             LOGGER.info(f"{prefix}{e}")
 
-    def __call__(self, im, labels, p=1.0):
+    def __call__(self, im, labels, p=1.0, seed=None):
         """Applies transformations to an image and labels with probability `p`, returning updated image and labels."""
+        if seed is not None:
+            np.random.seed(seed)
+            random.seed(seed)
+
         if self.transform and random.random() < p:
             new = self.transform(image=im, bboxes=labels[:, 1:], class_labels=labels[:, 0])  # transformed
             im, labels = new["image"], np.array([[c, *b] for c, b in zip(new["class_labels"], new["bboxes"])])
@@ -71,8 +75,15 @@ def denormalize(x, mean=IMAGENET_MEAN, std=IMAGENET_STD):
     return x
 
 
-def augment_hsv(im, hgain=0.5, sgain=0.5, vgain=0.5):
-    """Applies HSV color-space augmentation to an image with random gains for hue, saturation, and value."""
+def augment_hsv(im, hgain=0.5, sgain=0.5, vgain=0.5, seed=None):
+    """
+    Applies HSV color-space augmentation to an image with random gains for hue, saturation, and value.
+    An optional random seed can be passed to ensure the same transformation is applied if called with the same seed.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+        random.seed(seed)
+
     if hgain or sgain or vgain:
         r = np.random.uniform(-1, 1, 3) * [hgain, sgain, vgain] + 1  # random gains
         hue, sat, val = cv2.split(cv2.cvtColor(im, cv2.COLOR_BGR2HSV))
@@ -153,11 +164,16 @@ def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleF
 
 
 def random_perspective(
-    im, targets=(), segments=(), degrees=10, translate=0.1, scale=0.1, shear=10, perspective=0.0, border=(0, 0)
+    im, targets=(), segments=(), degrees=10, translate=0.1, scale=0.1, shear=10, perspective=0.0, border=(0, 0), seed=None
 ):
-    # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(0.1, 0.1), scale=(0.9, 1.1), shear=(-10, 10))
-    # targets = [cls, xyxy]
-    """Applies random perspective transformation to an image, modifying the image and corresponding labels."""
+    """
+    Applies random perspective transformation to an image, modifying the image and corresponding labels.
+    An optional random seed can be passed to ensure the same transformation is applied if called with the same seed.
+    """
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+
     height = im.shape[0] + border[0] * 2  # shape(h,w,c)
     width = im.shape[1] + border[1] * 2
 
@@ -174,9 +190,7 @@ def random_perspective(
     # Rotation and Scale
     R = np.eye(3)
     a = random.uniform(-degrees, degrees)
-    # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
     s = random.uniform(1 - scale, 1 + scale)
-    # s = 2 ** random.uniform(-scale, scale)
     R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=s)
 
     # Shear
@@ -196,12 +210,6 @@ def random_perspective(
             im = cv2.warpPerspective(im, M, dsize=(width, height), borderValue=(114, 114, 114))
         else:  # affine
             im = cv2.warpAffine(im, M[:2], dsize=(width, height), borderValue=(114, 114, 114))
-
-    # Visualize
-    # import matplotlib.pyplot as plt
-    # ax = plt.subplots(1, 2, figsize=(12, 6))[1].ravel()
-    # ax[0].imshow(im[:, :, ::-1])  # base
-    # ax[1].imshow(im2[:, :, ::-1])  # warped
 
     # Transform label coordinates
     n = len(targets)

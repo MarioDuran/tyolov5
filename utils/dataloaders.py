@@ -790,6 +790,7 @@ class LoadImagesAndLabels(Dataset):
         apply_mixup = random.random() < hyp["mixup"]
         apply_flipud = random.random() < hyp["flipud"]
         apply_fliplr = random.random() < hyp["fliplr"]
+        seed = random.randint(0,2**32 - 1)
         augment_params = {
             "degrees": hyp["degrees"],
             "translate": hyp["translate"],
@@ -801,10 +802,6 @@ class LoadImagesAndLabels(Dataset):
             "vgain": hyp["hsv_v"],
         }
 
-        apply_mosaic = False
-        apply_mixup = False
-        apply_flipud = True
-        apply_fliplr = False
         self.augment = True
 
         # Determine the starting point for the current sequence based on `video_len`
@@ -825,12 +822,15 @@ class LoadImagesAndLabels(Dataset):
 
             if apply_mosaic:
                 # Load mosaic
+                np.random.seed(seed)
+                random.seed(seed)
+
                 img, labels = self.load_mosaic(actual_index)
                 shapes = None
 
                 # MixUp augmentation
-                if apply_mixup:
-                    img, labels = mixup(img, labels, *self.load_mosaic(random.choice(self.indices)))
+                #if apply_mixup:
+                #    img, labels = mixup(img, labels, *self.load_mosaic(random.choice(self.indices)))
             else:
                 # Load image
                 img, (h0, w0), (h, w) = self.load_image(actual_index)
@@ -844,6 +844,7 @@ class LoadImagesAndLabels(Dataset):
                 if labels.size:  # normalized xywh to pixel xyxy format
                     labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
 
+                # comment 2
                 if self.augment:
                     # Apply random perspective using the same augmentation parameters
                     img, labels = random_perspective(
@@ -854,6 +855,7 @@ class LoadImagesAndLabels(Dataset):
                         scale=augment_params["scale"],
                         shear=augment_params["shear"],
                         perspective=augment_params["perspective"],
+                        seed=seed
                     )
 
             nl = len(labels)  # number of labels
@@ -862,11 +864,11 @@ class LoadImagesAndLabels(Dataset):
 
             if self.augment:
                 # Apply Albumentations with consistent parameters
-                img, labels = self.albumentations(img, labels)
+                img, labels = self.albumentations(img, labels, seed=seed)
                 nl = len(labels)  # update after albumentations
 
                 # Apply HSV color-space using the same parameters
-                #augment_hsv(img, hgain=augment_params["hgain"], sgain=augment_params["sgain"], vgain=augment_params["vgain"])
+                augment_hsv(img, hgain=augment_params["hgain"], sgain=augment_params["sgain"], vgain=augment_params["vgain"],seed=seed)
 
                 # Apply consistent flip up-down
                 if apply_flipud:
