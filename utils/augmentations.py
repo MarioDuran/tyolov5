@@ -58,7 +58,7 @@ class Albumentations:
             im, labels = new["image"], np.array([[c, *b] for c, b in zip(new["class_labels"], new["bboxes"])])
         return im, labels
 
-def random_erasing(im, p=0.5, min_scale=0.02, max_scale=0.4, min_ratio=0.3, max_ratio=3.3):
+def random_erasing(im, p=0.2, min_scale=0.02, max_scale=0.2, min_ratio=0.3, max_ratio=3.3):
     """
     Applies random erasing by adding randomly positioned and sized squares with random colors or noise.
     Probability of applying is defined by p.
@@ -84,7 +84,7 @@ def random_erasing(im, p=0.5, min_scale=0.02, max_scale=0.4, min_ratio=0.3, max_
     return im
 
 
-def random_blur(im, p=0.5, max_kernel_size=5):
+def random_blur(im, p=0.2, max_kernel_size=10):
     """
     Applies random blur to an image with probability p and random kernel size between 1 and max_kernel_size.
     """
