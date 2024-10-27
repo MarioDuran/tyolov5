@@ -29,6 +29,9 @@ from pathlib import Path
 import numpy as np
 import torch
 from tqdm import tqdm
+import torchvision.transforms as T
+from PIL import Image
+from PIL import ImageDraw, ImageFont
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
@@ -327,6 +330,56 @@ def run(
     callbacks.run("on_val_start")
     pbar = tqdm(dataloader, desc=s, bar_format=TQDM_BAR_FORMAT)  # progress bar
     for batch_i, (im, targets, paths, shapes) in enumerate(pbar):
+
+        print(f" 1 Input tensor shape: {im.shape}")  # Added line to print the shape of the input tensor
+        im = im.view(-1, 3, im.shape[3], im.shape[3])
+        print(f" 2 Input tensor shape: {im.shape}")  # Added line to print the shape of the input tensor
+        print(save_dir)
+        print('targets', targets.shape)
+
+        # Convert the tensor to a PIL Image and save it
+        transform = T.ToPILImage()
+
+        # Ensure targets are associated correctly with each image index
+        for idx, img_tensor in enumerate(im):
+            # Convert tensor to image
+            img = transform(img_tensor.cpu())  # Move to CPU if on GPU
+            
+            # Draw bounding boxes
+            draw = ImageDraw.Draw(img)
+
+            # Filter out targets for the current image (each target has the format: [batch_index, class, x_center, y_center, width, height])
+            img_targets = targets[targets[:, 0] == idx]
+
+            # Draw each bounding box
+            for target in img_targets:
+                _, cls, x_center, y_center, width, height = target.cpu().numpy()
+
+                # Convert normalized coordinates (relative to image size) to pixel coordinates
+                img_width, img_height = img.size
+                x_center, y_center, width, height = (
+                    x_center * img_width,
+                    y_center * img_height,
+                    width * img_width,
+                    height * img_height,
+                )
+
+                # Calculate the top-left and bottom-right coordinates
+                x1 = x_center - width / 2
+                y1 = y_center - height / 2
+                x2 = x_center + width / 2
+                y2 = y_center + height / 2
+
+                # Draw the rectangle on the image
+                draw.rectangle([x1, y1, x2, y2], outline="red", width=2)
+
+                # Optionally, add the class label on top of the bounding box
+                font = ImageFont.load_default()
+                draw.text((x1, y1), str(int(cls)), fill="red", font=font)
+
+            # Save the image to the folder
+            img.save(os.path.join(save_dir, f"val_batch_{batch_i}_img_{idx}.png"))
+
         callbacks.run("on_val_batch_start")
         with dt[0]:
             if cuda:
@@ -537,6 +590,7 @@ def parse_opt():
     parser.add_argument("--exist-ok", action="store_true", help="existing project/name ok, do not increment")
     parser.add_argument("--half", action="store_true", help="use FP16 half-precision inference")
     parser.add_argument("--dnn", action="store_true", help="use OpenCV DNN for ONNX inference")
+    
     opt = parser.parse_args()
     opt.data = check_yaml(opt.data)  # check YAML
     opt.save_json |= opt.data.endswith("coco.yaml")

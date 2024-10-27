@@ -816,24 +816,32 @@ class LoadImagesAndLabels(Dataset):
         paths_seq = []
 
         # Define augmentation parameters (generate once for the sequence)
-        hyp = self.hyp
-        apply_mosaic = self.mosaic and random.random() < hyp["mosaic"]
-        apply_mixup = random.random() < hyp["mixup"]
-        apply_flipud = random.random() < hyp["flipud"]
-        apply_fliplr = random.random() < hyp["fliplr"]
-        seed = random.randint(0,2**32 - 1)
-        augment_params = {
-            "degrees": hyp["degrees"],
-            "translate": hyp["translate"],
-            "scale": hyp["scale"],
-            "shear": hyp["shear"],
-            "perspective": hyp["perspective"],
-            "hgain": hyp["hsv_h"],
-            "sgain": hyp["hsv_s"],
-            "vgain": hyp["hsv_v"],
-        }
+        if self.hyp is not None:
+            self.augment = True  # Enable augmentation
 
-        self.augment = True
+            # Set flags for augmentation types
+            apply_mosaic = self.mosaic and random.random() < self.hyp["mosaic"]
+            apply_mixup = random.random() < self.hyp["mixup"]
+            apply_flipud = random.random() < self.hyp["flipud"]
+            apply_fliplr = random.random() < self.hyp["fliplr"]
+            
+            # Generate a random seed
+            seed = random.randint(0, 2**32 - 1)
+
+            # Define augmentation parameters
+            augment_params = {
+                "degrees": self.hyp["degrees"],
+                "translate": self.hyp["translate"],
+                "scale": self.hyp["scale"],
+                "shear": self.hyp["shear"],
+                "perspective": self.hyp["perspective"],
+                "hgain": self.hyp["hsv_h"],
+                "sgain": self.hyp["hsv_s"],
+                "vgain": self.hyp["hsv_v"],
+            }
+        else:
+            self.augment = False  # Disable augmentation if hyp is None
+            apply_mosaic = False
 
         # Determine the starting point for the current sequence based on `video_len`
         # Assuming `index` is the start of the sequence, calculate max allowed based on `video_len`
