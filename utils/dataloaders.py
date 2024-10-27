@@ -777,6 +777,34 @@ class LoadImagesAndLabels(Dataset):
     #     #self.shuffled_vector = np.random.permutation(self.nF) if self.augment else np.arange(self.nF)
     #     return self
 
+    def get_valid_index(self, start_index, current_index):
+        """
+        Returns a valid frame index within the same video.
+
+        Parameters:
+        - start_index (int): The starting frame index of the sequence.
+        - current_index (int): The current frame index to validate.
+        - video_length (int): Number of frames per video. Default is 100.
+
+        Returns:
+        - int: A valid frame index within the same video.
+        """
+        # Determine which video the start_index belongs to
+        video_num = start_index // self.video_len
+
+        # Calculate the last frame index of the current video
+        last_index = (video_num + 1) * self.video_len - 1
+
+        # Calculate the next index in the sequence
+        next_index = current_index + 1
+
+        # If the next index exceeds the last index of the video, return last_index
+        if next_index > last_index:
+            return last_index
+        else:
+            return next_index
+
+
     def __getitem__(self, index):
         """Fetches a sequence of dataset items based on seq_len, applying consistent augmentation across all images."""
         seq_images = []
@@ -806,41 +834,41 @@ class LoadImagesAndLabels(Dataset):
 
         # Determine the starting point for the current sequence based on `video_len`
         # Assuming `index` is the start of the sequence, calculate max allowed based on `video_len`
-        start_index = index
-        max_index = min(start_index + self.video_len - 1, len(self.indices) - 1)
+        #start_index = index
+        #max_index = min(start_index + self.video_len - 1, len(self.indices) - 1)
 
         # Loop to load images based on seq_len
         for offset in range(self.seq_len):
             # Ensure `cur_index` does not exceed `video_len`
-            cur_index = min(start_index + offset, max_index)
-            
+            #cur_index = min(start_index + offset, max_index)
+            cur_index = self.get_valid_index(index, index + offset)
             # Use the same `cur_index` if it exceeds `video_len` to repeat the last frame
-            if cur_index > max_index:
-                cur_index = max_index
+            #if cur_index > max_index:
+            #    cur_index = max_index
 
-            actual_index = self.indices[cur_index]
+            #actual_index = self.indices[cur_index]
 
             if apply_mosaic:
                 # Load mosaic
                 np.random.seed(seed)
                 random.seed(seed)
 
-                img, labels = self.load_mosaic(actual_index)
+                img, labels = self.load_mosaic(cur_index, offset)
                 shapes = None
-
+                
                 # MixUp augmentation
-                #if apply_mixup:
-                #    img, labels = mixup(img, labels, *self.load_mosaic(random.choice(self.indices)))
+                if apply_mixup:
+                    img, labels = mixup(img, labels, *self.load_mosaic(random.choice(self.indices), offset))
             else:
                 # Load image
-                img, (h0, w0), (h, w) = self.load_image(actual_index)
+                img, (h0, w0), (h, w) = self.load_image(cur_index)
 
                 # Letterbox
-                shape = self.batch_shapes[self.batch[actual_index]] if self.rect else self.img_size  # final letterboxed shape
+                shape = self.batch_shapes[self.batch[cur_index]] if self.rect else self.img_size  # final letterboxed shape
                 img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
                 shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
 
-                labels = self.labels[actual_index].copy()
+                labels = self.labels[cur_index].copy()
                 if labels.size:  # normalized xywh to pixel xyxy format
                     labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
 
@@ -894,7 +922,7 @@ class LoadImagesAndLabels(Dataset):
             seq_images.append(torch.from_numpy(img))
             labels_seq.append(labels_out)
             shapes_seq.append(shapes)
-            paths_seq.append(self.im_files[actual_index])
+            paths_seq.append(self.im_files[cur_index])
 
         # Stack images to create a batch with seq_len items
         seq_images_tensor = torch.stack(seq_images, dim=0)  # Shape will be [seq_len, C, H, W]
@@ -933,13 +961,17 @@ class LoadImagesAndLabels(Dataset):
         if not f.exists():
             np.save(f.as_posix(), cv2.imread(self.im_files[i]))
 
-    def load_mosaic(self, index):
+    def load_mosaic(self, index, offset):
         """Loads a 4-image mosaic for YOLOv5, combining 1 selected and 3 random images, with labels and segments."""
         labels4, segments4 = [], []
         s = self.img_size
         yc, xc = (int(random.uniform(-x, 2 * s + x)) for x in self.mosaic_border)  # mosaic center x, y
-        indices = [index] + random.choices(self.indices, k=3)  # 3 additional image indices
-        random.shuffle(indices)
+        indices = [index] 
+        for _ in range(3):
+            t = random.choice(self.indices)
+            indices.append(self.get_valid_index(t, t + offset))
+        #random.shuffle(indices)
+
         for i, index in enumerate(indices):
             # Load image
             img, _, (h, w) = self.load_image(index)
