@@ -35,6 +35,9 @@ from utils.augmentations import (
     letterbox,
     mixup,
     random_perspective,
+    random_erasing,
+    random_blur
+
 )
 from utils.general import (
     DATASETS_DIR,
@@ -897,6 +900,10 @@ class LoadImagesAndLabels(Dataset):
 
                 # Apply HSV color-space using the same parameters
                 augment_hsv(img, hgain=augment_params["hgain"], sgain=augment_params["sgain"], vgain=augment_params["vgain"],seed=seed)
+                
+                if offset > 0:
+                    img = random_erasing(img)  # New random erasing augmentation
+                    img = random_blur(img)  # New random blur augmentation
 
                 # Apply consistent flip up-down
                 if apply_flipud:

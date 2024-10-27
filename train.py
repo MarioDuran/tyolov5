@@ -98,8 +98,6 @@ from utils.torch_utils import (
     smart_resume,
     torch_distributed_zero_first,
     dfs_freeze,
-    RandomErasing,
-    GaussianSmoothing,
 )
 
 LOCAL_RANK = int(os.getenv("LOCAL_RANK", -1))  # https://pytorch.org/docs/stable/elastic/run.html
@@ -346,8 +344,6 @@ def train(hyp, opt, device, callbacks):
     if cuda and RANK != -1:
         model = smart_DDP(model)
 
-    smoothing = GaussianSmoothing(3, 5, 15).to(device)
-
     for k, v in model.named_parameters():
         if v.requires_grad == True:
             print('not freezing %s' % k)
@@ -407,61 +403,54 @@ def train(hyp, opt, device, callbacks):
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
             callbacks.run("on_train_batch_start")
 
-            #print(f" 1 Input tensor shape: {imgs.shape}")  # Added line to print the shape of the input tensor
+            print(f" 1 Input tensor shape: {imgs.shape}")  # Added line to print the shape of the input tensor
             imgs = imgs.view(-1, 3, imgs.shape[3], imgs.shape[3])
-            #print(f" 2 Input tensor shape: {imgs.shape}")  # Added line to print the shape of the input tensor
-            #print(save_dir)
-            #print('targets', targets.shape)
-
-
-            for z in range(imgs.shape[0]):
-                if random.uniform(0, 1) < 0.3:
-                    imgs[z, :, :, :] = smoothing(F.pad(imgs[z:z+1, :, :, :], (2, 2, 2, 2), mode='reflect'))
-                if z % opt.seq_len != 0:
-                    imgs[z, :, :, :] = RandomErasing(imgs[z, :, :, :].permute(1, 2, 0)).permute(2, 0, 1)
+            print(f" 2 Input tensor shape: {imgs.shape}")  # Added line to print the shape of the input tensor
+            print(save_dir)
+            print('targets', targets.shape)
 
             # Convert the tensor to a PIL Image and save it
             transform = T.ToPILImage()
 
-            # # Ensure targets are associated correctly with each image index
-            # for idx, img_tensor in enumerate(imgs):
-            #     # Convert tensor to image
-            #     img = transform(img_tensor.cpu())  # Move to CPU if on GPU
+            # Ensure targets are associated correctly with each image index
+            for idx, img_tensor in enumerate(imgs):
+                # Convert tensor to image
+                img = transform(img_tensor.cpu())  # Move to CPU if on GPU
                 
-            #     # Draw bounding boxes
-            #     draw = ImageDraw.Draw(img)
+                # Draw bounding boxes
+                draw = ImageDraw.Draw(img)
 
-            #     # Filter out targets for the current image (each target has the format: [batch_index, class, x_center, y_center, width, height])
-            #     img_targets = targets[targets[:, 0] == idx]
+                # Filter out targets for the current image (each target has the format: [batch_index, class, x_center, y_center, width, height])
+                img_targets = targets[targets[:, 0] == idx]
 
-            #     # Draw each bounding box
-            #     for target in img_targets:
-            #         _, cls, x_center, y_center, width, height = target.cpu().numpy()
+                # Draw each bounding box
+                for target in img_targets:
+                    _, cls, x_center, y_center, width, height = target.cpu().numpy()
 
-            #         # Convert normalized coordinates (relative to image size) to pixel coordinates
-            #         img_width, img_height = img.size
-            #         x_center, y_center, width, height = (
-            #             x_center * img_width,
-            #             y_center * img_height,
-            #             width * img_width,
-            #             height * img_height,
-            #         )
+                    # Convert normalized coordinates (relative to image size) to pixel coordinates
+                    img_width, img_height = img.size
+                    x_center, y_center, width, height = (
+                        x_center * img_width,
+                        y_center * img_height,
+                        width * img_width,
+                        height * img_height,
+                    )
 
-            #         # Calculate the top-left and bottom-right coordinates
-            #         x1 = x_center - width / 2
-            #         y1 = y_center - height / 2
-            #         x2 = x_center + width / 2
-            #         y2 = y_center + height / 2
+                    # Calculate the top-left and bottom-right coordinates
+                    x1 = x_center - width / 2
+                    y1 = y_center - height / 2
+                    x2 = x_center + width / 2
+                    y2 = y_center + height / 2
 
-            #         # Draw the rectangle on the image
-            #         draw.rectangle([x1, y1, x2, y2], outline="red", width=2)
+                    # Draw the rectangle on the image
+                    draw.rectangle([x1, y1, x2, y2], outline="red", width=2)
 
-            #         # Optionally, add the class label on top of the bounding box
-            #         font = ImageFont.load_default()
-            #         draw.text((x1, y1), str(int(cls)), fill="red", font=font)
+                    # Optionally, add the class label on top of the bounding box
+                    font = ImageFont.load_default()
+                    draw.text((x1, y1), str(int(cls)), fill="red", font=font)
 
-            #     # Save the image to the folder
-            #     img.save(os.path.join(save_dir, f"epoch_{epoch}_batch_{i}_img_{idx}.png"))
+                # Save the image to the folder
+                img.save(os.path.join(save_dir, f"epoch_{epoch}_batch_{i}_img_{idx}.png"))
 
             ni = i + nb * epoch  # number integrated batches (since train start)
             imgs = imgs.to(device, non_blocking=True).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0

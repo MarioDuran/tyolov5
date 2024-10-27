@@ -10,14 +10,12 @@ import warnings
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
-import random
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
-import numbers
 
 from utils.general import LOGGER, check_version, colorstr, file_date, git_describe
 
@@ -39,98 +37,6 @@ def dfs_freeze(model):
         for param in child.parameters():
             param.requires_grad = False
         dfs_freeze(child)
-
-def RandomErasing(img, probability=0.35, sl=0.01, sh=0.05, r1=0.5, mean=[0.5, 0.5, 0.5]):
-    if random.uniform(0, 1) < probability:
-        attempts = int(random.uniform(0, 1) * 5)
-        for attempt in range(attempts):
-            area = img.shape[0] * img.shape[1]
-
-            target_area = (sl + (sh - sl) * random.uniform(0, 1)) * area
-            aspect_ratio = r1 + ((1 / r1) - r1) * random.uniform(0, 1)
-
-            h = int(round(math.sqrt(target_area * aspect_ratio)))
-            w = int(round(math.sqrt(target_area / aspect_ratio)))
-
-            if w < img.shape[1] and h < img.shape[0]:
-                y1 = int((img.shape[0] - h) * random.uniform(0, 1))
-                x1 = int((img.shape[1] - w) * random.uniform(0, 1))
-
-                if random.uniform(0, 1) < 0.5:
-                    img[y1:y1 + h, x1:x1 + w, 0] = random.uniform(0, 1)
-                    img[y1:y1 + h, x1:x1 + w, 1] = random.uniform(0, 1)
-                    img[y1:y1 + h, x1:x1 + w, 2] = random.uniform(0, 1)
-                else:
-                    img[y1:y1 + h, x1:x1 + w, 0] = torch.rand(h, w)
-                    img[y1:y1 + h, x1:x1 + w, 1] = torch.rand(h, w)
-                    img[y1:y1 + h, x1:x1 + w, 2] = torch.rand(h, w)
-
-    return img
-
-class GaussianSmoothing(nn.Module):
-    """
-    Apply gaussian smoothing on a
-    1d, 2d or 3d tensor. Filtering is performed seperately for each channel
-    in the input using a depthwise convolution.
-    Arguments:
-        channels (int, sequence): Number of channels of the input tensors. Output will
-            have this number of channels as well.
-        kernel_size (int, sequence): Size of the gaussian kernel.
-        sigma (float, sequence): Standard deviation of the gaussian kernel.
-        dim (int, optional): The number of dimensions of the data.
-            Default value is 2 (spatial).
-    """
-
-    def __init__(self, channels, kernel_size, sigma, dim=2):
-        super(GaussianSmoothing, self).__init__()
-        if isinstance(kernel_size, numbers.Number):
-            kernel_size = [kernel_size] * dim
-        if isinstance(sigma, numbers.Number):
-            sigma = [sigma] * dim
-
-        # The gaussian kernel is the product of the
-        # gaussian function of each dimension.
-        kernel = 1
-        meshgrids = torch.meshgrid(
-            [
-                torch.arange(size, dtype=torch.float32)
-                for size in kernel_size
-            ]
-        )
-        for size, std, mgrid in zip(kernel_size, sigma, meshgrids):
-            mean = (size - 1) / 2
-            kernel *= 1 / (std * math.sqrt(2 * math.pi)) * \
-                      torch.exp(-((mgrid - mean) / std) ** 2 / 2)
-
-        # Make sure sum of values in gaussian kernel equals 1.
-        kernel = kernel / torch.sum(kernel)
-
-        # Reshape to depthwise convolutional weight
-        kernel = kernel.view(1, 1, *kernel.size())
-        kernel = kernel.repeat(channels, *[1] * (kernel.dim() - 1))
-
-        self.register_buffer('weight', kernel)
-        self.groups = channels
-
-        if dim == 1:
-            self.conv = F.conv1d
-        elif dim == 2:
-            self.conv = F.conv2d
-        elif dim == 3:
-            self.conv = F.conv3d
-        else:
-            raise RuntimeError(
-                'Only 1, 2 and 3 dimensions are supported. Received {}.'.format(dim)
-            )
-    def forward(self, input):
-        """
-        Apply gaussian filter to input.
-        Arguments:
-            input (torch.Tensor): Input to apply gaussian filter on.
-        Returns:
-            filtered (torch.Tensor): Filtered output.
-        """
-        return self.conv(input.float(), weight=self.weight, groups=self.groups)
 
 def smart_inference_mode(torch_1_9=check_version(torch.__version__, "1.9.0")):
     """Applies torch.inference_mode() if torch>=1.9.0, else torch.no_grad() as a decorator for functions."""
