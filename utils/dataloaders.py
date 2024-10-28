@@ -179,7 +179,7 @@ def create_dataloader(
     shuffle=False,
     seed=0,
     seq_len=2,
-    video_len=100,
+    video_len=20,
 ):
     """Creates and returns a configured DataLoader instance for loading and processing image datasets."""
     if rect and shuffle:
@@ -816,9 +816,7 @@ class LoadImagesAndLabels(Dataset):
         paths_seq = []
 
         # Define augmentation parameters (generate once for the sequence)
-        if self.hyp is not None:
-            self.augment = True  # Enable augmentation
-
+        if self.augment:
             # Set flags for augmentation types
             apply_mosaic = self.mosaic and random.random() < self.hyp["mosaic"]
             apply_mixup = random.random() < self.hyp["mixup"]
@@ -840,7 +838,6 @@ class LoadImagesAndLabels(Dataset):
                 "vgain": self.hyp["hsv_v"],
             }
         else:
-            self.augment = False  # Disable augmentation if hyp is None
             apply_mosaic = False
 
         # Determine the starting point for the current sequence based on `video_len`

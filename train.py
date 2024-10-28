@@ -313,7 +313,7 @@ def train(hyp, opt, device, callbacks):
     labels = np.concatenate(dataset.labels, 0)
     mlc = int(labels[:, 0].max())  # max label class
     assert mlc < nc, f"Label class {mlc} exceeds nc={nc} in {data}. Possible class labels are 0-{nc - 1}"
-
+    
     # Process 0
     if RANK in {-1, 0}:
         val_loader = create_dataloader(
@@ -329,7 +329,7 @@ def train(hyp, opt, device, callbacks):
             workers=workers * 2,
             pad=0.5,
             prefix=colorstr("val: "),
-            seq_len=20,
+            seq_len=2,
             video_len=20,
         )[0]
 
