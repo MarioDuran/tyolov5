@@ -205,7 +205,9 @@ class ConvLSTM(nn.Module):
 
         # Implement stateful ConvLSTM
         if hidden_state is not None:
-            raise NotImplementedError()
+            # Ensure hidden_state has the correct format
+            if len(hidden_state) != self.num_layers:
+                raise ValueError("Length of hidden_state does not match num_layers")
         else:
             # Since the init is done in forward. Can send image size here
             hidden_state = self._init_hidden(batch_size=b,
@@ -264,7 +266,7 @@ class Detect(nn.Module):
     dynamic = False  # force grid reconstruction
     export = False  # export mode
 
-    def __init__(self, nc=80, anchors=(), ch=(), inplace=True, sl=2):
+    def __init__(self, nc=80, anchors=(), ch=(), inplace=True, sl=1):
         """Initializes YOLOv5 detection layer with specified classes, anchors, channels, and inplace operations."""
         super().__init__()
         self.nc = nc  # number of classes
@@ -277,8 +279,6 @@ class Detect(nn.Module):
         self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
         self.inplace = inplace  # use inplace ops (e.g. slice assignment)
 
-        self.bn = nn.ModuleList(nn.BatchNorm2d(x) for x in ch)  # output conv
-        self.act = nn.LeakyReLU(0.1, inplace=True)
         self.sl = sl
         self.convlstm1 = ConvLSTM(input_dim=ch[0],
                                   hidden_dim=[ch[0]],
@@ -306,15 +306,28 @@ class Detect(nn.Module):
 
         self.convlstms = [self.convlstm1, self.convlstm2, self.convlstm3]
 
-    def forward(self, x):
+    def forward(self, x, h=None):
         """Processes input through YOLOv5 layers, altering shape for detection: `x(bs, 3, ny, nx, 85)`."""
         z = []  # inference output
+        h_new = {}
+        if h is None:
+            h = [None] * self.nl
+
         for i in range(self.nl):
 
-            cx = x[i].view(-1, self.sl, x[i].shape[1], x[i].shape[2], x[i].shape[3])
-            xo, xhc = self.convlstms[i](cx)
+            if self.training:
+                cx = x[i].view(-1, self.sl, x[i].shape[1], x[i].shape[2], x[i].shape[3])
+            else:
+                cx = x[i].view(-1, 1, x[i].shape[1], x[i].shape[2], x[i].shape[3])
+
+
+            if h[i] is None:
+                xo, xhc = self.convlstms[i](cx)
+            else:
+                xo, xhc = self.convlstms[i](cx, hidden_state=h[i])
+            h_new[i] = xhc 
+
             cx = xo[0].view(-1, x[i].shape[1], x[i].shape[2], x[i].shape[3])
-            cx = self.act(self.bn[i](cx))
 
             x[i] = self.m[i](x[i])  # conv
             bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
@@ -336,7 +349,14 @@ class Detect(nn.Module):
                     y = torch.cat((xy, wh, conf), 4)
                 z.append(y.view(bs, self.na * nx * ny, self.no))
 
-        return x if self.training else (torch.cat(z, 1),) if self.export else (torch.cat(z, 1), x)
+        if self.training:
+            return x, h_new
+        else:
+            if self.export:
+                return (torch.cat(z, 1),), h_new
+            else:
+                return (torch.cat(z, 1), x), h_new
+
 
     def _make_grid(self, nx=20, ny=20, i=0, torch_1_10=check_version(torch.__version__, "1.10.0")):
         """Generates a mesh grid for anchor boxes with optional compatibility for torch versions < 1.10."""
@@ -375,25 +395,31 @@ class Segment(Detect):
 class BaseModel(nn.Module):
     """YOLOv5 base model."""
 
-    def forward(self, x, profile=False, visualize=False):
+    def forward(self, x, h=None, profile=False, visualize=False):
         """Executes a single-scale inference or training pass on the YOLOv5 base model, with options for profiling and
         visualization.
         """
-        return self._forward_once(x, profile, visualize)  # single-scale inference, train
+        return self._forward_once(x, h, profile, visualize)  # single-scale inference, train
 
-    def _forward_once(self, x, profile=False, visualize=False):
+    def _forward_once(self, x, h=None, profile=False, visualize=False):
         """Performs a forward pass on the YOLOv5 model, enabling profiling and feature visualization options."""
         y, dt = [], []  # outputs
+        if h is None:
+            h = {}  # initialize empty hidden state dict
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
             if profile:
                 self._profile_one_layer(m, x, dt)
-            x = m(x)  # run
+            if isinstance(m, Detect):
+                x, h_new = m(x, h.get(m.i))
+                h[m.i] = h_new
+            else:
+                x = m(x)
             y.append(x if m.i in self.save else None)  # save output
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
-        return x
+        return x, h
 
     def _profile_one_layer(self, m, x, dt):
         """Profiles a single layer's performance by computing GFLOPs, execution time, and parameters."""
@@ -470,28 +496,32 @@ class DetectionModel(BaseModel):
         if isinstance(m, (Detect, Segment)):
 
             def _forward(x):
-                """Passes the input 'x' through the model and returns the processed output."""
-                return self.forward(x)[0] if isinstance(m, Segment) else self.forward(x)
+                outputs, _ = self.forward(x)
+                if isinstance(outputs, list):
+                    return outputs
+                else:
+                    return [outputs]
 
             s = 256  # 2x min stride
             m.inplace = self.inplace
-            m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(2, ch, s, s))])  # forward
+            x_input = torch.zeros(2, ch, s, s)
+            x_output = _forward(x_input)
+            m.stride = torch.tensor([s / x.shape[-2] for x in x_output])  # forward
             check_anchor_order(m)
             m.anchors /= m.stride.view(-1, 1, 1)
             self.stride = m.stride
             self._initialize_biases()  # only run once
-
 
         # Init weights, biases
         initialize_weights(self)
         self.info()
         LOGGER.info("")
 
-    def forward(self, x, augment=False, profile=False, visualize=False):
+    def forward(self, x, h=None, augment=False, profile=False, visualize=False):
         """Performs single-scale or augmented inference and may include profiling or visualization."""
         if augment:
             return self._forward_augment(x)  # augmented inference, None
-        return self._forward_once(x, profile, visualize)  # single-scale inference, train
+        return self._forward_once(x, h, profile, visualize)  # single-scale inference, train
 
     def _forward_augment(self, x):
         """Performs augmented inference across different scales and flips, returning combined detections."""
@@ -686,7 +716,7 @@ def parse_model(d, ch):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--cfg", type=str, default="yolov5s.yaml", help="model.yaml")
-    parser.add_argument("--batch-size", type=int, default=2, help="total batch size for all GPUs")
+    parser.add_argument("--batch-size", type=int, default=1, help="total batch size for all GPUs")
     parser.add_argument("--device", default="cpu", help="cuda device, i.e. 0 or 0,1,2,3 or cpu")
     parser.add_argument("--profile", action="store_true", help="profile model speed")
     parser.add_argument("--line-profile", action="store_true", help="profile model speed layer by layer")
@@ -716,5 +746,7 @@ if __name__ == "__main__":
 
     else:  # report fused model summary
         #model.fuse()
-        model(im, profile=False)
+        output0, h0 = model(im, None, profile=False)
+        output1, h1 = model(im, h0, profile=False)
+        output2, h2 = model(im, h1, profile=False)
 

@@ -314,7 +314,7 @@ def run(
             rect=rect,
             workers=workers,
             prefix=colorstr(f"{task}: "),
-            seq_len=2,
+            seq_len=1,
             video_len=20,
         )[0]
 
@@ -331,7 +331,13 @@ def run(
     jdict, stats, ap, ap_class = [], [], [], []
     callbacks.run("on_val_start")
     pbar = tqdm(dataloader, desc=s, bar_format=TQDM_BAR_FORMAT)  # progress bar
+
+    h_cur = None
+
     for batch_i, (im, targets, paths, shapes) in enumerate(pbar):
+
+        if (batch_i) % 20 == 0:
+            h_cur = None  
 
         #print(f" 1 Input tensor shape: {im.shape}")  # Added line to print the shape of the input tensor
         im = im.view(-1, 3, im.shape[3], im.shape[3])
@@ -393,7 +399,15 @@ def run(
 
         # Inference
         with dt[1]:
-            preds, train_out = model(im) if compute_loss else (model(im, augment=augment), None)
+            if compute_loss:
+                preds, train_out, h_new = model(im, h_cur)
+            else:
+                preds, h_new = model(im, h_cur, augment=augment)
+                train_out = None
+
+        # Update hidden state
+        h_cur = h_new
+
 
         # Loss
         if compute_loss:

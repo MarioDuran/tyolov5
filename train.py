@@ -319,7 +319,7 @@ def train(hyp, opt, device, callbacks):
         val_loader = create_dataloader(
             val_path,
             imgsz,
-            batch_size // WORLD_SIZE * 2,
+            1,
             gs,
             single_cls,
             hyp=hyp,
@@ -329,7 +329,7 @@ def train(hyp, opt, device, callbacks):
             workers=workers * 2,
             pad=0.5,
             prefix=colorstr("val: "),
-            seq_len=2,
+            seq_len=1,
             video_len=20,
         )[0]
 
@@ -476,7 +476,7 @@ def train(hyp, opt, device, callbacks):
 
             # Forward
             with torch.amp.autocast("cuda", enabled=amp):
-                pred = model(imgs)  # forward
+                pred, h_new = model(imgs)  # forward
                 loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
                 if RANK != -1:
                     loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
