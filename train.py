@@ -522,7 +522,7 @@ def train(hyp, opt, device, callbacks):
             if not noval or final_epoch:  # Calculate mAP
                 results, maps, _ = validate.run(
                     data_dict,
-                    batch_size=batch_size // WORLD_SIZE * 2,
+                    batch_size=1,
                     imgsz=imgsz,
                     half=amp,
                     model=ema.ema,
@@ -995,7 +995,7 @@ def run(**kwargs):
         weights (str, optional): Path to initial weights. Defaults to ROOT / 'yolov5s.pt'.
         cfg (str, optional): Path to model YAML configuration. Defaults to an empty string.
         data (str, optional): Path to dataset YAML configuration. Defaults to ROOT / 'data/coco128.yaml'.
-        hyp (str, optional): Path to hyperparameters YAML configuration. Defaults to ROOT / 'data/hyps/hyp.scratch-low.yaml'.
+        hyp (str, optional): Path to hyperparameters YAML configuration. Defaults to ROOT / 'data/hyps/hyp.scratch-low-temp.yaml'.
         epochs (int, optional): Total number of training epochs. Defaults to 100.
         batch_size (int, optional): Total batch size for all GPUs. Use -1 for automatic batch size determination. Defaults to 16.
         imgsz (int, optional): Image size (pixels) for training and validation. Defaults to 640.
