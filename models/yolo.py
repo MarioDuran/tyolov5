@@ -120,8 +120,12 @@ class ConvLSTMCell(nn.Module):
 
     def init_hidden(self, batch_size, image_size):
         height, width = image_size
-        return (torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device),
-                torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device))
+        dtype = self.conv.weight.dtype  # Get the data type of the convolutional weights
+        device = self.conv.weight.device
+        return (
+            torch.zeros(batch_size, self.hidden_dim, height, width, device=device, dtype=dtype),
+            torch.zeros(batch_size, self.hidden_dim, height, width, device=device, dtype=dtype)
+        )
 
 
 class ConvLSTM(nn.Module):
@@ -353,10 +357,9 @@ class Detect(nn.Module):
             return x, h_new
         else:
             if self.export:
-                return (torch.cat(z, 1),), h_new
+                return (torch.cat(z, 1), h_new)
             else:
-                return (torch.cat(z, 1), x), h_new
-
+                return (torch.cat(z, 1), x, h_new)
 
     def _make_grid(self, nx=20, ny=20, i=0, torch_1_10=check_version(torch.__version__, "1.10.0")):
         """Generates a mesh grid for anchor boxes with optional compatibility for torch versions < 1.10."""
