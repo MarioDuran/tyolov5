@@ -814,7 +814,6 @@ class LoadImagesAndLabels(Dataset):
         labels_seq = []
         shapes_seq = []
         paths_seq = []
-
         # Define augmentation parameters (generate once for the sequence)
         if self.augment:
             # Set flags for augmentation types

@@ -311,7 +311,7 @@ def run(
             stride,
             single_cls,
             pad=pad,
-            rect=rect,
+            rect=False,
             workers=workers,
             prefix=colorstr(f"{task}: "),
             seq_len=1,
@@ -340,14 +340,15 @@ def run(
             h_cur = None  
 
         #print(f" 1 Input tensor shape: {im.shape}")  # Added line to print the shape of the input tensor
-        im = im.view(-1, 3, im.shape[3], im.shape[3])
+        im = im.view(-1, 3, im.shape[3], im.shape[4])
         #print(f" 2 Input tensor shape: {im.shape}")  # Added line to print the shape of the input tensor
         #print(save_dir)
         #print('targets', targets.shape)
 
-        # Convert the tensor to a PIL Image and save it
-        # transform = T.ToPILImage()
 
+
+        # #Convert the tensor to a PIL Image and save it
+        # transform = T.ToPILImage()
         # # Ensure targets are associated correctly with each image index
         # for idx, img_tensor in enumerate(im):
         #     # Convert tensor to image
@@ -402,8 +403,7 @@ def run(
             if compute_loss:
                 preds, train_out, h_new = model(im, h_cur)
             else:
-                preds, h_new = model(im, h_cur, augment=augment)
-                train_out = None
+                preds, train_out, h_new = model(im, h_cur, augment=augment)
 
         # Update hidden state
         h_cur = h_new
@@ -460,10 +460,10 @@ def run(
                 save_one_json(predn, jdict, path, class_map)  # append to COCO-JSON dictionary
             callbacks.run("on_val_image_end", pred, predn, path, names, im[si])
 
-        # Plot images
-        if plots and batch_i < 3:
-            plot_images(im, targets, paths, save_dir / f"val_batch{batch_i}_labels.jpg", names)  # labels
-            plot_images(im, output_to_target(preds), paths, save_dir / f"val_batch{batch_i}_pred.jpg", names)  # pred
+            # Plot images
+            if (batch_i + 1) % 20 == 0 and batch_i < 100:
+                plot_images(im, targets, paths, save_dir / f"val_batch{batch_i}_labels.jpg", names)  # labels
+                plot_images(im, output_to_target(preds), paths, save_dir / f"val_batch{batch_i}_pred.jpg", names)  # pred
 
         callbacks.run("on_val_batch_end", batch_i, im, targets, paths, shapes, preds)
 

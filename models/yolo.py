@@ -282,9 +282,11 @@ class Detect(nn.Module):
         self.register_buffer("anchors", torch.tensor(anchors).float().view(self.nl, -1, 2))  # shape(nl,na,2)
         self.inplace = inplace  # use inplace ops (e.g. slice assignment)
         self.sl = sl
+        self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
+
         self.convlstms = nn.ModuleList([
             ConvLSTM(input_dim=ch[i],
-                     hidden_dim=[self.no * self.na],
+                     hidden_dim=ch[i],
                      kernel_size=(3, 3),
                      num_layers=1,
                      batch_first=True,
@@ -314,8 +316,15 @@ class Detect(nn.Module):
             
             h_new.append(tuple(xhc[0]))
             x[i] = xo[0].view(-1, xo[0].shape[2], xo[0].shape[3], xo[0].shape[4])
+            #cx = xo[0].view(-1, x[i].shape[1], x[i].shape[2], x[i].shape[3])
+
+            #bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
+            #x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
+
+            x[i] = self.m[i](x[i])  # conv
             bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
             x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
+
             if not self.training:  # inference
                 if self.dynamic or self.grid[i].shape[2:4] != x[i].shape[2:4]:
                     self.grid[i], self.anchor_grid[i] = self._make_grid(nx, ny, i)

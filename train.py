@@ -325,9 +325,10 @@ def train(hyp, opt, device, callbacks):
             single_cls,
             hyp=hyp,
             cache=None if noval else opt.cache,
-            rect=True,
+            rect=False,  # Ensure rect is False
+            shuffle=False,  # Explicitly disable shuffling
             rank=-1,
-            workers=workers * 2,
+            workers=1,
             pad=0.5,
             prefix=colorstr("val: "),
             seq_len=1,
