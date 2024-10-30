@@ -280,35 +280,19 @@ class Detect(nn.Module):
         self.grid = [torch.empty(0) for _ in range(self.nl)]  # init grid
         self.anchor_grid = [torch.empty(0) for _ in range(self.nl)]  # init anchor grid
         self.register_buffer("anchors", torch.tensor(anchors).float().view(self.nl, -1, 2))  # shape(nl,na,2)
-        self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
         self.inplace = inplace  # use inplace ops (e.g. slice assignment)
 
         self.sl = sl
-        self.convlstm1 = ConvLSTM(input_dim=ch[0],
-                                  hidden_dim=[ch[0]],
-                                  kernel_size=(3, 3),
-                                  num_layers=1,
-                                  batch_first=True,
-                                  bias=True,
-                                  return_all_layers=True)
-
-        self.convlstm2 = ConvLSTM(input_dim=ch[1],
-                                  hidden_dim=[ch[1]],
-                                  kernel_size=(3, 3),
-                                  num_layers=1,
-                                  batch_first=True,
-                                  bias=True,
-                                  return_all_layers=True)
-
-        self.convlstm3 = ConvLSTM(input_dim=ch[2],
-                                  hidden_dim=[ch[2]],
-                                  kernel_size=(3, 3),
-                                  num_layers=1,
-                                  batch_first=True,
-                                  bias=True,
-                                  return_all_layers=True)
-
-        self.convlstms = [self.convlstm1, self.convlstm2, self.convlstm3]
+        self.convlstms = nn.ModuleList([
+            ConvLSTM(input_dim=ch[i],
+                     hidden_dim=[self.no * self.na],
+                     kernel_size=(3, 3),
+                     num_layers=1,
+                     batch_first=True,
+                     bias=True,
+                     return_all_layers=True)
+            for i in range(self.nl)
+        ])
 
     def forward(self, x, h=None):
         """Processes input through YOLOv5 layers, altering shape for detection: `x(bs, 3, ny, nx, 85)`."""
@@ -324,7 +308,6 @@ class Detect(nn.Module):
             else:
                 cx = x[i].view(-1, 1, x[i].shape[1], x[i].shape[2], x[i].shape[3])
 
-
             if h[i] is None:
                 xo, xhc = self.convlstms[i](cx)
             else:
@@ -332,12 +315,9 @@ class Detect(nn.Module):
             
             h_new.append(tuple(xhc[0]))
 
-            cx = xo[0].view(-1, x[i].shape[1], x[i].shape[2], x[i].shape[3])
-
-            x[i] = self.m[i](x[i])  # conv
+            x[i] = xo[0].squeeze(1)
             bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
             x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
-
             if not self.training:  # inference
                 if self.dynamic or self.grid[i].shape[2:4] != x[i].shape[2:4]:
                     self.grid[i], self.anchor_grid[i] = self._make_grid(nx, ny, i)
@@ -573,19 +553,51 @@ class DetectionModel(BaseModel):
 
     def _initialize_biases(self, cf=None):
         """
-        Initializes biases for YOLOv5's Detect() module, optionally using class frequencies (cf).
+        Initializes biases for the ConvLSTM layers in YOLOv5's Detect() module, optionally using class frequencies (cf).
 
         For details see https://arxiv.org/abs/1708.02002 section 3.3.
         """
-        # cf = torch.bincount(torch.tensor(np.concatenate(dataset.labels, 0)[:, 0]).long(), minlength=nc) + 1.
         m = self.model[-1]  # Detect() module
-        for mi, s in zip(m.m, m.stride):  # from
-            b = mi.bias.view(m.na, -1)  # conv.bias(255) to (3,85)
-            b.data[:, 4] += math.log(8 / (640 / s) ** 2)  # obj (8 objects per 640 image)
-            b.data[:, 5 : 5 + m.nc] += (
-                math.log(0.6 / (m.nc - 0.99999)) if cf is None else torch.log(cf / cf.sum())
-            )  # cls
-            mi.bias = torch.nn.Parameter(b.view(-1), requires_grad=True)
+        for convlstm_layer, s in zip(m.convlstms, m.stride):  # Iterate over ConvLSTM layers and strides
+            for layer_idx in range(convlstm_layer.num_layers):
+                convlstm_cell = convlstm_layer.cell_list[layer_idx]
+                conv = convlstm_cell.conv  # nn.Conv2d
+
+                num_gates = 4  # input gate, forget gate, cell gate, output gate
+                hidden_dim = convlstm_cell.hidden_dim
+                if isinstance(hidden_dim, list):
+                    hidden_dim = hidden_dim[0]  # Assuming single hidden_dim per layer
+
+                # Clone and detach the bias to avoid in-place operations on a leaf variable
+                bias = conv.bias.clone().detach()  # Shape: (num_gates * hidden_dim,)
+
+                # Reshape bias to (num_gates, hidden_dim)
+                bias = bias.view(num_gates, hidden_dim)
+
+                # Initialize the biases for the output gate (gate index 3)
+                b = torch.zeros(m.na, m.no, device=bias.device, dtype=bias.dtype)
+
+                # Initialize b as in the original YOLOv5 code
+                b[:, 4] += math.log(8 / (640 / s) ** 2)  # Objectness bias
+                if cf is None:
+                    b[:, 5:5 + m.nc] += math.log(0.6 / (m.nc - 0.99999))  # Class bias
+                else:
+                    b[:, 5:5 + m.nc] += torch.log(cf / cf.sum())
+
+                # Flatten b to match hidden_dim
+                b_flat = b.view(-1)  # Shape: (m.na * m.no,)
+
+                if b_flat.shape[0] != hidden_dim:
+                    raise ValueError(f"Mismatch in hidden_dim ({hidden_dim}) and bias size ({b_flat.shape[0]}).")
+
+                # Assign b_flat to the biases of the output gate
+                bias[3] = b_flat  # Safe in-place operation on cloned tensor
+
+                # Reshape bias back to (num_gates * hidden_dim,)
+                bias = bias.view(-1)
+
+                # Assign the modified bias back to conv.bias as a Parameter
+                conv.bias = nn.Parameter(bias, requires_grad=True)
 
 
 Model = DetectionModel  # retain YOLOv5 'Model' class for backwards compatibility
