@@ -313,7 +313,7 @@ class Detect(nn.Module):
     def forward(self, x, h=None):
         """Processes input through YOLOv5 layers, altering shape for detection: `x(bs, 3, ny, nx, 85)`."""
         z = []  # inference output
-        h_new = {}
+        h_new = []
         if h is None:
             h = [None] * self.nl
 
@@ -328,8 +328,9 @@ class Detect(nn.Module):
             if h[i] is None:
                 xo, xhc = self.convlstms[i](cx)
             else:
-                xo, xhc = self.convlstms[i](cx, hidden_state=h[i])
-            h_new[i] = xhc 
+                xo, xhc = self.convlstms[i](cx, hidden_state=[h[i]])  # Wrap h[i] in a list
+            
+            h_new.append(tuple(xhc[0]))
 
             cx = xo[0].view(-1, x[i].shape[1], x[i].shape[2], x[i].shape[3])
 
@@ -353,6 +354,8 @@ class Detect(nn.Module):
                     y = torch.cat((xy, wh, conf), 4)
                 z.append(y.view(bs, self.na * nx * ny, self.no))
 
+        h_new = tuple(h_new)
+        
         if self.training:
             return x, h_new
         else:
@@ -405,24 +408,21 @@ class BaseModel(nn.Module):
         return self._forward_once(x, h, profile, visualize)  # single-scale inference, train
 
     def _forward_once(self, x, h=None, profile=False, visualize=False):
-        """Performs a forward pass on the YOLOv5 model, enabling profiling and feature visualization options."""
         y, dt = [], []  # outputs
-        if h is None:
-            h = {}  # initialize empty hidden state dict
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
             if profile:
                 self._profile_one_layer(m, x, dt)
+            # Check if the current module is the Detect layer
             if isinstance(m, Detect):
-                x, h_new = m(x, h.get(m.i))
-                h[m.i] = h_new
+                x = m(x, h)  # pass h to Detect
             else:
-                x = m(x)
+                x = m(x)  # run without h
             y.append(x if m.i in self.save else None)  # save output
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
-        return x, h
+        return x
 
     def _profile_one_layer(self, m, x, dt):
         """Profiles a single layer's performance by computing GFLOPs, execution time, and parameters."""
