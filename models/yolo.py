@@ -270,7 +270,7 @@ class Detect(nn.Module):
     dynamic = False  # force grid reconstruction
     export = False  # export mode
 
-    def __init__(self, nc=80, anchors=(), ch=(), inplace=True, sl=1):
+    def __init__(self, nc=80, anchors=(), ch=(), sl=2, inplace=True):
         """Initializes YOLOv5 detection layer with specified classes, anchors, channels, and inplace operations."""
         super().__init__()
         self.nc = nc  # number of classes
@@ -281,7 +281,6 @@ class Detect(nn.Module):
         self.anchor_grid = [torch.empty(0) for _ in range(self.nl)]  # init anchor grid
         self.register_buffer("anchors", torch.tensor(anchors).float().view(self.nl, -1, 2))  # shape(nl,na,2)
         self.inplace = inplace  # use inplace ops (e.g. slice assignment)
-
         self.sl = sl
         self.convlstms = nn.ModuleList([
             ConvLSTM(input_dim=ch[i],
@@ -314,8 +313,7 @@ class Detect(nn.Module):
                 xo, xhc = self.convlstms[i](cx, hidden_state=[h[i]])  # Wrap h[i] in a list
             
             h_new.append(tuple(xhc[0]))
-
-            x[i] = xo[0].squeeze(1)
+            x[i] = xo[0].view(-1, xo[0].shape[2], xo[0].shape[3], xo[0].shape[4])
             bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
             x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
             if not self.training:  # inference
@@ -453,6 +451,8 @@ class DetectionModel(BaseModel):
     def __init__(self, cfg="yolov5s.yaml", ch=3, nc=None, anchors=None, sl=2):
         """Initializes YOLOv5 model with configuration file, input channels, number of classes, and custom anchors."""
         super().__init__()
+        self.sl = sl  
+
         if isinstance(cfg, dict):
             self.yaml = cfg  # model dict
         else:  # is *.yaml
@@ -470,7 +470,7 @@ class DetectionModel(BaseModel):
         if anchors:
             LOGGER.info(f"Overriding model.yaml anchors with anchors={anchors}")
             self.yaml["anchors"] = round(anchors)  # override yaml value
-        self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
+        self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch], sl=self.sl)  # model, savelist
         self.names = [str(i) for i in range(self.yaml["nc"])]  # default names
         self.inplace = self.yaml.get("inplace", True)
 
@@ -487,7 +487,7 @@ class DetectionModel(BaseModel):
 
             s = 256  # 2x min stride
             m.inplace = self.inplace
-            x_input = torch.zeros(2, ch, s, s)
+            x_input = torch.zeros(sl, ch, s, s)
             x_output = _forward(x_input)
             m.stride = torch.tensor([s / x.shape[-2] for x in x_output])  # forward
             check_anchor_order(m)
@@ -558,46 +558,46 @@ class DetectionModel(BaseModel):
         For details see https://arxiv.org/abs/1708.02002 section 3.3.
         """
         m = self.model[-1]  # Detect() module
-        for convlstm_layer, s in zip(m.convlstms, m.stride):  # Iterate over ConvLSTM layers and strides
-            for layer_idx in range(convlstm_layer.num_layers):
-                convlstm_cell = convlstm_layer.cell_list[layer_idx]
-                conv = convlstm_cell.conv  # nn.Conv2d
+        # for convlstm_layer, s in zip(m.convlstms, m.stride):  # Iterate over ConvLSTM layers and strides
+        #     for layer_idx in range(convlstm_layer.num_layers):
+        #         convlstm_cell = convlstm_layer.cell_list[layer_idx]
+        #         conv = convlstm_cell.conv  # nn.Conv2d
 
-                num_gates = 4  # input gate, forget gate, cell gate, output gate
-                hidden_dim = convlstm_cell.hidden_dim
-                if isinstance(hidden_dim, list):
-                    hidden_dim = hidden_dim[0]  # Assuming single hidden_dim per layer
+        #         num_gates = 4  # input gate, forget gate, cell gate, output gate
+        #         hidden_dim = convlstm_cell.hidden_dim
+        #         if isinstance(hidden_dim, list):
+        #             hidden_dim = hidden_dim[0]  # Assuming single hidden_dim per layer
 
-                # Clone and detach the bias to avoid in-place operations on a leaf variable
-                bias = conv.bias.clone().detach()  # Shape: (num_gates * hidden_dim,)
+        #         # Clone and detach the bias to avoid in-place operations on a leaf variable
+        #         bias = conv.bias.clone().detach()  # Shape: (num_gates * hidden_dim,)
 
-                # Reshape bias to (num_gates, hidden_dim)
-                bias = bias.view(num_gates, hidden_dim)
+        #         # Reshape bias to (num_gates, hidden_dim)
+        #         bias = bias.view(num_gates, hidden_dim)
 
-                # Initialize the biases for the output gate (gate index 3)
-                b = torch.zeros(m.na, m.no, device=bias.device, dtype=bias.dtype)
+        #         # Initialize the biases for the output gate (gate index 3)
+        #         b = torch.zeros(m.na, m.no, device=bias.device, dtype=bias.dtype)
 
-                # Initialize b as in the original YOLOv5 code
-                b[:, 4] += math.log(8 / (640 / s) ** 2)  # Objectness bias
-                if cf is None:
-                    b[:, 5:5 + m.nc] += math.log(0.6 / (m.nc - 0.99999))  # Class bias
-                else:
-                    b[:, 5:5 + m.nc] += torch.log(cf / cf.sum())
+        #         # Initialize b as in the original YOLOv5 code
+        #         b[:, 4] += math.log(8 / (640 / s) ** 2)  # Objectness bias
+        #         if cf is None:
+        #             b[:, 5:5 + m.nc] += math.log(0.6 / (m.nc - 0.99999))  # Class bias
+        #         else:
+        #             b[:, 5:5 + m.nc] += torch.log(cf / cf.sum())
 
-                # Flatten b to match hidden_dim
-                b_flat = b.view(-1)  # Shape: (m.na * m.no,)
+        #         # Flatten b to match hidden_dim
+        #         b_flat = b.view(-1)  # Shape: (m.na * m.no,)
 
-                if b_flat.shape[0] != hidden_dim:
-                    raise ValueError(f"Mismatch in hidden_dim ({hidden_dim}) and bias size ({b_flat.shape[0]}).")
+        #         if b_flat.shape[0] != hidden_dim:
+        #             raise ValueError(f"Mismatch in hidden_dim ({hidden_dim}) and bias size ({b_flat.shape[0]}).")
 
-                # Assign b_flat to the biases of the output gate
-                bias[3] = b_flat  # Safe in-place operation on cloned tensor
+        #         # Assign b_flat to the biases of the output gate
+        #         bias[3] = b_flat  # Safe in-place operation on cloned tensor
 
-                # Reshape bias back to (num_gates * hidden_dim,)
-                bias = bias.view(-1)
+        #         # Reshape bias back to (num_gates * hidden_dim,)
+        #         bias = bias.view(-1)
 
-                # Assign the modified bias back to conv.bias as a Parameter
-                conv.bias = nn.Parameter(bias, requires_grad=True)
+        #         # Assign the modified bias back to conv.bias as a Parameter
+        #         conv.bias = nn.Parameter(bias, requires_grad=True)
 
 
 Model = DetectionModel  # retain YOLOv5 'Model' class for backwards compatibility
@@ -642,7 +642,7 @@ class ClassificationModel(BaseModel):
         """Creates a YOLOv5 classification model from a specified *.yaml configuration file."""
         self.model = None
 
-def parse_model(d, ch):
+def parse_model(d, ch, sl=2):
     """Parses a YOLOv5 model from a dict `d`, configuring layers based on input channels `ch` and model architecture."""
     LOGGER.info(f"\n{'':>3}{'from':>18}{'n':>3}{'params':>10}  {'module':<40}{'arguments':<30}")
     anchors, nc, gd, gw, act, ch_mul = (
@@ -653,6 +653,7 @@ def parse_model(d, ch):
         d.get("activation"),
         d.get("channel_multiple"),
     )
+
     if act:
         Conv.default_act = eval(act)  # redefine default activation, i.e. Conv.default_act = nn.SiLU()
         LOGGER.info(f"{colorstr('activation:')} {act}")  # print
@@ -708,6 +709,7 @@ def parse_model(d, ch):
                 args[1] = [list(range(args[1] * 2))] * len(f)
             if m is Segment:
                 args[3] = make_divisible(args[3] * gw, ch_mul)
+            args.append(sl)  # Append sl to args for Detect module
         elif m is Contract:
             c2 = ch[f] * args[0] ** 2
         elif m is Expand:
