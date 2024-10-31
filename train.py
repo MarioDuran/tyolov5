@@ -332,7 +332,7 @@ def train(hyp, opt, device, callbacks):
             pad=0.5,
             prefix=colorstr("val: "),
             seq_len=1,
-            video_len=20,
+            video_len=opt.video_len,
         )[0]
 
         if not resume:
@@ -534,6 +534,7 @@ def train(hyp, opt, device, callbacks):
                     plots=False,
                     callbacks=callbacks,
                     compute_loss=compute_loss,
+                    video_test_len = opt.video_test_len
                 )
 
             # Update best mAP
@@ -684,7 +685,8 @@ def parse_opt(known=False):
     #Temporal Argument
     parser.add_argument("--seq_len", type=int, default=2, help="Number of frames per training sequence")
     parser.add_argument("--video_len", type=int, default=100, help="Total number of frames in each video")
-    
+    parser.add_argument("--video_test_len", type=int, default=100, help="Total number of frames in each video")
+
     return parser.parse_known_args()[0] if known else parser.parse_args()
 
 

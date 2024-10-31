@@ -217,6 +217,7 @@ def run(
     plots=True,
     callbacks=Callbacks(),
     compute_loss=None,
+    video_test_len=100
 ):
     """
     Evaluates a YOLOv5 model on a dataset and logs performance metrics.
@@ -315,7 +316,7 @@ def run(
             workers=workers,
             prefix=colorstr(f"{task}: "),
             seq_len=1,
-            video_len=20,
+            video_len=video_test_len,
         )[0]
 
     seen = 0
@@ -336,7 +337,7 @@ def run(
 
     for batch_i, (im, targets, paths, shapes) in enumerate(pbar):
 
-        if (batch_i) % 20 == 0:
+        if (batch_i) % video_test_len == 0:
             h_cur = None  
 
         #print(f" 1 Input tensor shape: {im.shape}")  # Added line to print the shape of the input tensor
