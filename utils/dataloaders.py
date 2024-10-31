@@ -793,19 +793,16 @@ class LoadImagesAndLabels(Dataset):
         - int: A valid frame index within the same video.
         """
         # Determine which video the start_index belongs to
-        video_num = start_index // self.video_len
+        video_num = start_index // 100
 
         # Calculate the last frame index of the current video
-        last_index = (video_num + 1) * self.video_len - 1
-
-        # Calculate the next index in the sequence
-        next_index = current_index + 1
+        last_index = (video_num + 1) * 100 
 
         # If the next index exceeds the last index of the video, return last_index
-        if next_index > last_index:
-            return last_index
+        if current_index >= last_index:
+            return last_index - 1
         else:
-            return next_index
+            return current_index
 
 
     def __getitem__(self, index):
