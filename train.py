@@ -588,7 +588,7 @@ def train(hyp, opt, device, callbacks):
                     LOGGER.info(f"\nValidating {f}...")
                     results, _, _ = validate.run(
                         data_dict,
-                        batch_size=batch_size // WORLD_SIZE * 2,
+                        batch_size=1,
                         imgsz=imgsz,
                         model=attempt_load(f, device).half(),
                         iou_thres=0.65 if is_coco else 0.60,  # best pycocotools at iou 0.65
