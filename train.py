@@ -600,6 +600,7 @@ def train(hyp, opt, device, callbacks):
                         plots=plots,
                         callbacks=callbacks,
                         compute_loss=compute_loss,
+                        video_test_len = opt.video_test_len
                     )  # val best model with plots
                     if is_coco:
                         callbacks.run("on_fit_epoch_end", list(mloss) + list(results) + lr, epoch, best_fitness, fi)
