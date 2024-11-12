@@ -58,38 +58,37 @@ class Albumentations:
             im, labels = new["image"], np.array([[c, *b] for c, b in zip(new["class_labels"], new["bboxes"])])
         return im, labels
 
-def random_erasing(im, p=0.2, min_scale=0.02, max_scale=0.2, min_ratio=0.3, max_ratio=3.3):
+def random_erasing(im, prng, p=0.4, min_scale=0.02, max_scale=0.2, min_ratio=0.3, max_ratio=3.3):
     """
     Applies random erasing by adding randomly positioned and sized squares with random colors or noise.
     Probability of applying is defined by p.
     """
-    if random.random() < p:
+    if prng.random() < p:
         h, w = im.shape[:2]
-        for _ in range(random.randint(1, 5)):  # number of erasing regions
+        for _ in range(prng.randint(1, 5)):  # number of erasing regions
             area = h * w
-            target_area = random.uniform(min_scale, max_scale) * area
-            aspect_ratio = random.uniform(min_ratio, max_ratio)
+            target_area = prng.uniform(min_scale, max_scale) * area
+            aspect_ratio = prng.uniform(min_ratio, max_ratio)
 
             erasing_h = int(round(math.sqrt(target_area * aspect_ratio)))
             erasing_w = int(round(math.sqrt(target_area / aspect_ratio)))
 
             if erasing_h < h and erasing_w < w:
-                x = random.randint(0, h - erasing_h)
-                y = random.randint(0, w - erasing_w)
+                x = prng.randint(0, h - erasing_h)
+                y = prng.randint(0, w - erasing_w)
                 
-                if random.random() < 0.5:
-                    im[x:x + erasing_h, y:y + erasing_w] = [random.randint(0, 255) for _ in range(3)]
+                if prng.random() < 0.5:
+                    im[x:x + erasing_h, y:y + erasing_w] = [prng.randint(0, 255) for _ in range(3)]
                 else:  # add noise
                     im[x:x + erasing_h, y:y + erasing_w] = np.random.randint(0, 256, (erasing_h, erasing_w, 3))
     return im
 
-
-def random_blur(im, p=0.2, max_kernel_size=10):
+def random_blur(im, prng, p=0.4, max_kernel_size=10):
     """
     Applies random blur to an image with probability p and random kernel size between 1 and max_kernel_size.
     """
-    if random.random() < p:
-        kernel_size = random.choice(range(1, max_kernel_size + 1, 2))  # Ensure kernel size is odd
+    if prng.random() < p:
+        kernel_size = prng.choice(range(1, max_kernel_size + 1, 2))  # Ensure kernel size is odd
         im = cv2.GaussianBlur(im, (kernel_size, kernel_size), 0)
     return im
 

@@ -541,6 +541,26 @@ def img2label_paths(img_paths):
     sa, sb = f"{os.sep}images{os.sep}", f"{os.sep}labels{os.sep}"  # /images/, /labels/ substrings
     return [sb.join(x.rsplit(sa, 1)).rsplit(".", 1)[0] + ".txt" for x in img_paths]
 
+class CustomPRNG:
+    def __init__(self, seed: int):
+        self.modulus = 2**32
+        self.multiplier = 1664525
+        self.increment = 1013904223
+        self.seed = seed % self.modulus
+
+    def random(self) -> float:
+        self.seed = (self.multiplier * self.seed + self.increment) % self.modulus
+        return self.seed / self.modulus
+
+    def randint(self, a: int, b: int) -> int:
+        return a + int(self.random() * (b - a + 1))
+
+    def uniform(self, a: float, b: float) -> float:
+        return a + (b - a) * self.random()
+
+    def choice(self, seq):
+        idx = self.randint(0, len(seq) - 1)
+        return seq[idx]
 
 class LoadImagesAndLabels(Dataset):
     """Loads images and their corresponding labels for training and validation in YOLOv5."""
@@ -840,6 +860,7 @@ class LoadImagesAndLabels(Dataset):
         # Assuming `index` is the start of the sequence, calculate max allowed based on `video_len`
         #start_index = index
         #max_index = min(start_index + self.video_len - 1, len(self.indices) - 1)
+        prng = CustomPRNG(seed=random.randint(1, 100000))
 
         # Loop to load images based on seq_len
         for offset in range(self.seq_len):
@@ -902,9 +923,9 @@ class LoadImagesAndLabels(Dataset):
                 # Apply HSV color-space using the same parameters
                 augment_hsv(img, hgain=augment_params["hgain"], sgain=augment_params["sgain"], vgain=augment_params["vgain"],seed=seed)
                 
-                if offset > 0:
-                    img = random_erasing(img)  # New random erasing augmentation
-                    img = random_blur(img)  # New random blur augmentation
+                if offset > 0 and prng.random() < 0.5:
+                    img = random_erasing(img, prng)  # New random erasing augmentation
+                    img = random_blur(img, prng)  # New random blur augmentation
 
                 # Apply consistent flip up-down
                 if apply_flipud:
