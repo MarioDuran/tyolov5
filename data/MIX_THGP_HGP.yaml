@@ -1,0 +1,18 @@
+
+# Example usage: python train.py --data MIX_THGP_HGP.yaml
+# parent
+# ├── yolov5
+# └── datasets
+#     └── MIX_THGP_HGP
+
+# Train/val/test sets as 1)
+path: ../datasets/MIX_THGP_HGP # dataset root dir
+train: images/train2017 # train images (relative to 'path')
+val: images/val2017 # val images (relative to 'path')
+test: images/val2017 # test images (optional)
+
+# Classes
+names:
+  0: phone
+  1: gun
+  2: hand

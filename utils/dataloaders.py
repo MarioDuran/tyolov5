@@ -812,6 +812,10 @@ class LoadImagesAndLabels(Dataset):
         Returns:
         - int: A valid frame index within the same video.
         """
+        image_path = self.im_files[start_index]
+        if image_path.split(os.sep)[-1][0] == 'T':
+            return start_index
+
         # Determine which video the start_index belongs to
         video_num = start_index // 100
 
