@@ -230,16 +230,16 @@ def train(hyp, opt, device, callbacks):
 
     amp = check_amp(model)  # check AMP
 
-    dfs_freeze(model)
+    #dfs_freeze(model)
 
-    for k, v in model.named_parameters():
-        # if '24' in k and not '.m.' in k:
-        #     v.requires_grad = True
-        if '24' in k:
-            v.requires_grad = True
-            print('Not freezing %s' % k)
-        else:
-            print('freezing %s' % k)
+    # for k, v in model.named_parameters():
+    #     # if '24' in k and not '.m.' in k:
+    #     #     v.requires_grad = True
+    #     if '24' in k:
+    #         v.requires_grad = True
+    #         print('Not freezing %s' % k)
+    #     else:
+    #         print('freezing %s' % k)
 
     # Image size
     gs = max(int(model.stride.max()), 32)  # grid size (max stride)
@@ -345,10 +345,6 @@ def train(hyp, opt, device, callbacks):
     # DDP mode
     if cuda and RANK != -1:
         model = smart_DDP(model)
-
-    for k, v in model.named_parameters():
-        if v.requires_grad == True:
-            print('not freezing %s' % k)
 
     # Model attributes
     nl = de_parallel(model).model[-1].nl  # number of detection layers (to scale hyps)
@@ -637,7 +633,7 @@ def parse_opt(known=False):
     parser.add_argument("--weights", type=str, default=ROOT / "yolov5s.pt", help="initial weights path")
     parser.add_argument("--cfg", type=str, default="", help="model.yaml path")
     parser.add_argument("--data", type=str, default=ROOT / "data/coco128.yaml", help="dataset.yaml path")
-    parser.add_argument("--hyp", type=str, default=ROOT / "data/hyps/hyp.scratch-low-temp.yaml", help="hyperparameters path")
+    parser.add_argument("--hyp", type=str, default=ROOT / "data/hyps/hyp.scratch-low.yaml", help="hyperparameters path")
     parser.add_argument("--epochs", type=int, default=100, help="total training epochs")
     parser.add_argument("--batch-size", type=int, default=16, help="total batch size for all GPUs, -1 for autobatch")
     parser.add_argument("--imgsz", "--img", "--img-size", type=int, default=640, help="train, val image size (pixels)")
